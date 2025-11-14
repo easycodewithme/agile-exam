@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests with pytest and generate JUnit XML
+        run: |
+          pytest -v --junitxml=reports/junit.xml
+
+      - name: Archive test report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-report
+          path: reports/junit.xml
+
+      - name: Prepare Slack message
+        id: slack_prep
+        run: |
+          PASSED=$(grep -o 'tests="[0-9]*"' reports/junit.xml | head -1 | sed 's/[^0-9]//g')
+          FAILURES=$(grep -o 'failures="[0-9]*"' reports/junit.xml | head -1 | sed 's/[^0-9]//g')
+          ERRORS=$(grep -o 'errors="[0-9]*"' reports/junit.xml | head -1 | sed 's/[^0-9]//g')
+
+          if [ -z "$PASSED" ]; then PASSED=0; fi
+          if [ -z "$FAILURES" ]; then FAILURES=0; fi
+          if [ -z "$ERRORS" ]; then ERRORS=0; fi
+
+          STATUS="SUCCESS"
+          COLOR="#2eb886"
+          if [ "$FAILURES" != "0" ] || [ "$ERRORS" != "0" ]; then
+            STATUS="FAILURE"
+            COLOR="#e01e5a"
+          fi
+
+          SUMMARY="Tests: $PASSED, Failures: $FAILURES, Errors: $ERRORS"
+
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+          echo "color=$COLOR" >> $GITHUB_OUTPUT
+          echo "summary=$SUMMARY" >> $GITHUB_OUTPUT
+
+      - name: Send Slack notification
+        if: always()
+        run: |
+          curl -X POST -H 'Content-type: application/json' --data "$(
+            jq -n --arg status '${{ steps.slack_prep.outputs.status }}' \
+                  --arg summary '${{ steps.slack_prep.outputs.summary }}' \
+                  --arg color '${{ steps.slack_prep.outputs.color }}' \
+                  '{
+                    "attachments": [
+                      {
+                        "color": $color,
+                        "title": "GitHub Actions Test Run: " + $status,
+                        "text": $summary,
+                        "footer": "Workflow: CI",
+                        "ts": now | floor
+                      }
+                    ]
+                  }'
+          )" "$SLACK_WEBHOOK_URL"

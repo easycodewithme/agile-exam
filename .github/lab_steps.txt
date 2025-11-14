@@ -1,0 +1,300 @@
+LAB EXAM - PYTHON REST API + TESTS + GITHUB ACTIONS + SLACK
+=========================================================
+
+SECTION 1: PROJECT SETUP
+------------------------
+1. Create project folder (if needed)
+   - On Windows, open terminal or PowerShell.
+   - Run (or navigate in Explorer):
+     - Folder: C:\Users\<your-user>\OneDrive\Documents\exam
+
+2. Inside the folder, create the following files (names are important):
+   - main.py
+   - test_api.py
+   - requirements.txt
+   - .github/workflows/ci.yml (create the .github and workflows folders if they do not exist)
+
+3. (Optional but recommended) Create and activate a virtual environment
+   - In the project folder:
+     - python -m venv venv
+     - venv\Scripts\activate
+
+
+SECTION 2: IMPLEMENT FASTAPI REST API (main.py)
+----------------------------------------------
+1. Import FastAPI and create app
+   - from fastapi import FastAPI, HTTPException
+   - app = FastAPI()
+
+2. Implement /status endpoint
+   - HTTP method: GET
+   - Path: /status
+   - Returns JSON: {"status": "ok"}
+   - Example handler:
+     - @app.get("/status")
+       async def get_status():
+           return {"status": "ok"}
+
+3. Implement /sum endpoint
+   - HTTP method: GET
+   - Path: /sum
+   - Query parameters: a: float, b: float
+   - Logic:
+     - Take a and b as float parameters from the query string.
+     - Compute result = a + b.
+     - Return JSON with keys: "a", "b", "sum".
+   - Example handler:
+     - @app.get("/sum")
+       async def get_sum(a: float, b: float):
+           result = a + b
+           return {"a": a, "b": b, "sum": result}
+
+4. Run and manually test the API (for verification)
+   - In terminal (with venv active and requirements installed):
+     - uvicorn main:app --reload
+   - Test with browser or curl:
+     - http://127.0.0.1:8000/status   => {"status": "ok"}
+     - http://127.0.0.1:8000/sum?a=2&b=3   => {"a": 2.0, "b": 3.0, "sum": 5.0}
+
+
+SECTION 3: INSTALL DEPENDENCIES (requirements.txt)
+-------------------------------------------------
+1. In requirements.txt, define the necessary packages, for example:
+   - fastapi==0.111.0
+   - uvicorn==0.30.0
+   - pytest==8.2.0
+   - requests==2.32.0
+   - pytest-cov==5.0.0
+   - pytest-xml==0.4.0
+
+2. Install dependencies:
+   - pip install --upgrade pip
+   - pip install -r requirements.txt
+
+
+SECTION 4: WRITE PYTEST TESTS USING REQUESTS (test_api.py)
+----------------------------------------------------------
+1. Objective
+   - Start the FastAPI server programmatically in tests.
+   - Use the requests library to call the /status and /sum endpoints.
+
+2. Import necessary modules
+   - import subprocess
+   - import time
+   - import requests
+   - import sys
+   - from pathlib import Path
+
+3. Define base URL for API
+   - BASE_URL = "http://127.0.0.1:8000"
+
+4. Function to start the server in a subprocess
+   - Use uvicorn via python -m uvicorn main:app
+   - Set cwd to project root
+   - Wait a short time for server to start
+   - Return the process object
+
+   Example structure:
+   - def start_server():
+       project_root = Path(__file__).parent
+       proc = subprocess.Popen(
+           [sys.executable, "-m", "uvicorn", "main:app"],
+           cwd=str(project_root),
+           stdout=subprocess.PIPE,
+           stderr=subprocess.PIPE,
+       )
+       time.sleep(2)
+       return proc
+
+5. Function to stop the server after tests
+   - def stop_server(proc):
+       proc.terminate()
+       try:
+           proc.wait(timeout=5)
+       except subprocess.TimeoutExpired:
+           proc.kill()
+
+6. Test class using pytest style
+   - class TestAPI:
+
+   - Setup and teardown for the whole test class:
+     - @classmethod
+       def setup_class(cls):
+           cls.server_proc = start_server()
+
+     - @classmethod
+       def teardown_class(cls):
+           stop_server(cls.server_proc)
+
+7. Test cases:
+   - test_status_endpoint
+     - Send GET to BASE_URL + "/status" using requests.get
+     - Assert status_code == 200
+     - Assert response JSON == {"status": "ok"}
+
+   - test_sum_endpoint_valid
+     - Send GET to BASE_URL + "/sum" with params={"a": 2, "b": 3}
+     - Assert status_code == 200
+     - Assert JSON["sum"] == 5
+
+   - test_sum_endpoint_float
+     - Send GET with params={"a": 1.5, "b": 2.5}
+     - Assert JSON["sum"] == 4.0
+
+   - test_sum_missing_param
+     - Send GET with only {"a": 1}
+     - Expect FastAPI validation error (missing b) => status_code == 422
+
+8. Run tests locally and generate JUnit XML
+   - pytest -v --junitxml=reports/junit.xml
+   - Check that reports/junit.xml is created.
+
+
+SECTION 5: GITHUB REPOSITORY SETUP
+----------------------------------
+1. Initialize git repository (first time only)
+   - git init
+   - git add .
+   - git commit -m "Initial commit with API, tests, workflow"
+
+2. Create a new repository on GitHub.
+   - Add remote origin:
+     - git remote add origin <your-repo-URL>
+   - Push code:
+     - git push -u origin main   (or master, depending on default branch)
+
+
+SECTION 6: GITHUB ACTIONS WORKFLOW (ci.yml)
+-------------------------------------------
+1. File location
+   - .github/workflows/ci.yml
+
+2. Define workflow name and triggers
+   - name: CI
+   - on:
+       push:
+         branches: ["**"]
+       pull_request:
+   - This makes the workflow run on every commit (push) and on pull requests.
+
+3. Define job and runner
+   - jobs:
+       test:
+         runs-on: ubuntu-latest
+
+4. Set Slack webhook environment variable
+   - env:
+       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+   - Note: SLACK_WEBHOOK_URL is stored as a GitHub secret.
+
+5. Steps in the job
+   - Checkout code
+     - uses: actions/checkout@v4
+
+   - Set up Python
+     - uses: actions/setup-python@v5
+     - with python-version: "3.11"
+
+   - Install dependencies
+     - Run:
+       - python -m pip install --upgrade pip
+       - pip install -r requirements.txt
+
+   - Run tests and generate JUnit XML report
+     - pytest -v --junitxml=reports/junit.xml
+
+   - Upload JUnit report as artifact
+     - uses: actions/upload-artifact@v4
+     - name: junit-report
+     - path: reports/junit.xml
+
+   - Prepare Slack message from JUnit XML
+     - Use shell commands (grep, sed) to extract:
+       - number of tests (tests="...")
+       - number of failures (failures="...")
+       - number of errors (errors="...")
+     - Compute status and color:
+       - If failures or errors > 0: status = FAILURE, color = red
+       - Else: status = SUCCESS, color = green
+     - Save values to GitHub Outputs for later step.
+
+   - Send Slack notification
+     - Always run (if: always()).
+     - Use curl to POST JSON to $SLACK_WEBHOOK_URL.
+     - Build JSON with jq, including:
+       - title: "GitHub Actions Test Run: <STATUS>"
+       - text: "Tests: X, Failures: Y, Errors: Z"
+       - color: based on success/failure
+       - ts: current timestamp
+
+
+SECTION 7: SLACK INTEGRATION SETUP
+----------------------------------
+1. In Slack
+   - Create a Slack App or enable Incoming Webhooks for your workspace.
+   - Configure an Incoming Webhook for a specific channel.
+   - Copy the Webhook URL.
+
+2. In GitHub repository
+   - Go to Settings -> Secrets and variables -> Actions.
+   - Click "New repository secret".
+   - Name: SLACK_WEBHOOK_URL
+   - Value: paste the Slack Incoming Webhook URL.
+   - Save.
+
+
+SECTION 8: END-TO-END FLOW (WHAT HAPPENS ON EACH COMMIT)
+--------------------------------------------------------
+1. Developer pushes code to GitHub.
+2. GitHub Actions workflow "CI" is triggered (on push / pull_request).
+3. The job runs on ubuntu-latest and:
+   - Checks out code.
+   - Sets up Python 3.11.
+   - Installs dependencies.
+   - Runs pytest and produces reports/junit.xml.
+   - Uploads junit.xml as an artifact.
+   - Parses junit.xml to extract tests/failures/errors.
+   - Builds a summary and determines SUCCESS or FAILURE.
+   - Sends a Slack message with test summary.
+
+4. Developer can:
+   - View detailed test results in GitHub Actions logs.
+   - Download junit.xml artifact.
+   - Check Slack channel for quick test status summary.
+
+
+SECTION 9: WHAT TO SHOW / SAY IN LAB EXAM
+-----------------------------------------
+1. Show code structure in IDE (or GitHub):
+   - main.py
+   - test_api.py
+   - requirements.txt
+   - .github/workflows/ci.yml
+
+2. Explain endpoints:
+   - /status returns simple health check JSON.
+   - /sum takes two query parameters a and b, returns their sum.
+
+3. Explain tests:
+   - Tests start a real FastAPI server with uvicorn.
+   - Use requests to call REST endpoints.
+   - Check HTTP status code and JSON responses.
+
+4. Explain CI workflow:
+   - Runs on every commit.
+   - Installs dependencies.
+   - Runs pytest and generates JUnit XML report.
+   - Uploads report as artifact.
+   - Sends Slack notification summarizing test results.
+
+5. Explain Slack integration:
+   - Incoming webhook URL stored as GitHub secret.
+   - Workflow uses curl + jq to post formatted attachment with status and summary.
+
+6. If possible, show a real run:
+   - Push a small change.
+   - Show GitHub Actions run passing.
+   - Show Slack message in the configured channel.
+
+
+END OF LAB STEPS
